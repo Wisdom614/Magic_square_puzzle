@@ -172,6 +172,7 @@
             color: var(--primary-dark);
             transition: all 0.3s ease;
             user-select: none;
+            position: relative;
         }
         
         .cell.empty {
@@ -199,6 +200,28 @@
         .cell.incorrect {
             background-color: rgba(255, 118, 117, 0.2);
             border-color: var(--error);
+        }
+        
+        .remove-btn {
+            position: absolute;
+            top: -8px;
+            right: -8px;
+            width: 20px;
+            height: 20px;
+            background-color: var(--error);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 12px;
+            cursor: pointer;
+            opacity: 0;
+            transition: opacity 0.2s;
+        }
+        
+        .cell:hover .remove-btn {
+            opacity: 1;
         }
         
         .number-pool {
@@ -433,6 +456,12 @@
             .instructions {
                 padding: 15px;
             }
+            
+            .remove-btn {
+                width: 18px;
+                height: 18px;
+                font-size: 10px;
+            }
         }
     </style>
 </head>
@@ -493,7 +522,8 @@
             <p><strong>Controls:</strong></p>
             <ul>
                 <li><strong>Drag and drop</strong> numbers from the pool to the grid</li>
-                <li><strong>Tap/Click</strong> on a cell then tap/click a number to place it</li>
+                <li><strong>Drag numbers between cells</strong> to rearrange them</li>
+                <li><strong>Click the × button</strong> to remove a number from the grid</li>
                 <li>Use <strong>Hint</strong> to reveal a correct number (3 per game)</li>
                 <li><strong>Show Solution</strong> reveals the complete answer</li>
             </ul>
@@ -538,6 +568,7 @@
             let gameActive = false;
             let attempts = 0;
             let draggedNumber = null;
+            let draggedFromCell = null;
             
             // Initialize the game
             initGame();
@@ -618,13 +649,36 @@
                     cell.className = 'cell empty';
                     cell.dataset.index = i;
                     
+                    // Add remove button
+                    const removeBtn = document.createElement('div');
+                    removeBtn.className = 'remove-btn';
+                    removeBtn.innerHTML = '×';
+                    removeBtn.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        removeNumberFromCell(cell);
+                    });
+                    cell.appendChild(removeBtn);
+                    
                     // Click/tap handler
-                    cell.addEventListener('click', function() {
-                        if (!gameActive) return;
+                    cell.addEventListener('click', function(e) {
+                        if (!gameActive || e.target.classList.contains('remove-btn')) return;
                         selectCell(this);
                     });
                     
                     // Drag and drop handlers
+                    cell.addEventListener('dragstart', function(e) {
+                        if (!gameActive || this.classList.contains('empty')) return;
+                        draggedFromCell = this;
+                        this.classList.add('dragging');
+                        e.dataTransfer.setData('text/plain', currentNumbers[parseInt(this.dataset.index)]);
+                        e.dataTransfer.effectAllowed = 'move';
+                    });
+                    
+                    cell.addEventListener('dragend', function() {
+                        this.classList.remove('dragging');
+                        draggedFromCell = null;
+                    });
+                    
                     cell.addEventListener('dragover', function(e) {
                         e.preventDefault();
                         this.classList.add('drag-over');
@@ -637,12 +691,31 @@
                     cell.addEventListener('drop', function(e) {
                         e.preventDefault();
                         this.classList.remove('drag-over');
-                        if (draggedNumber && gameActive) {
+                        
+                        if (draggedFromCell) {
+                            // Moving number between cells
+                            const fromIndex = parseInt(draggedFromCell.dataset.index);
+                            const toIndex = parseInt(this.dataset.index);
+                            const number = currentNumbers[fromIndex];
+                            
+                            // If target cell has a number, swap them
+                            if (currentNumbers[toIndex] !== null) {
+                                const temp = currentNumbers[toIndex];
+                                moveNumberToCell(draggedFromCell, temp);
+                                moveNumberToCell(this, number);
+                            } else {
+                                // Move number to empty cell
+                                moveNumberToCell(this, number);
+                                clearCell(draggedFromCell);
+                            }
+                        } else if (draggedNumber) {
+                            // Placing new number from pool
                             placeNumber(this, parseInt(draggedNumber.dataset.number));
                             draggedNumber = null;
                         }
                     });
                     
+                    cell.draggable = true;
                     magicSquare.appendChild(cell);
                 }
                 
@@ -669,11 +742,12 @@
                         draggedNumber = this;
                         this.classList.add('dragging');
                         e.dataTransfer.setData('text/plain', num);
-                        e.dataTransfer.effectAllowed = 'move';
+                        e.dataTransfer.effectAllowed = 'copy';
                     });
                     
                     numberElement.addEventListener('dragend', function() {
                         this.classList.remove('dragging');
+                        draggedNumber = null;
                     });
                     
                     numberElement.draggable = true;
@@ -735,6 +809,42 @@
                     if (parseInt(numElement.dataset.number) === number && !numElement.classList.contains('used')) {
                         numElement.classList.add('used');
                         break;
+                    }
+                }
+            }
+            
+            function moveNumberToCell(cell, number) {
+                const cellIndex = parseInt(cell.dataset.index);
+                
+                // Place the number in the cell
+                cell.textContent = number;
+                cell.classList.remove('empty');
+                currentNumbers[cellIndex] = number;
+            }
+            
+            function clearCell(cell) {
+                const cellIndex = parseInt(cell.dataset.index);
+                cell.textContent = '';
+                cell.classList.add('empty');
+                currentNumbers[cellIndex] = null;
+            }
+            
+            function removeNumberFromCell(cell) {
+                if (!gameActive) return;
+                
+                const cellIndex = parseInt(cell.dataset.index);
+                const number = currentNumbers[cellIndex];
+                
+                if (number !== null) {
+                    returnNumberToPool(number);
+                    cell.textContent = '';
+                    cell.classList.add('empty');
+                    currentNumbers[cellIndex] = null;
+                    
+                    // Deselect if this was the selected cell
+                    if (selectedCell === cell) {
+                        selectedCell.classList.remove('highlight');
+                        selectedCell = null;
                     }
                 }
             }
